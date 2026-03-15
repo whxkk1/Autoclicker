@@ -18,5 +18,8 @@
 		"gameplay",
 		"offline",
 		"cheat"
-	]
+	],
+	"links": {
+		"source": "https://github.com/whxkk1/Autoclicker"
+	}
 }
