@@ -1,4 +1,4 @@
-#include <Geode/Modify/GJBaseGameLayer.hpp>
+#include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include "../other/variables.hpp"
 
