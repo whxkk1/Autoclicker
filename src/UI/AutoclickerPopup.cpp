@@ -21,12 +21,14 @@ bool AutoclickerPopup::init() {
 
     
     p1MenuSpr = ButtonSprite::create("Player 1", "bigFont.fnt", "GJ_button_04.png", 0.8f);
-    auto p1ButtonMenu = CCMenuItemSpriteExtra::create(p1MenuSpr, this, menu_selector(AutoclickerPopup::switchTo1p));
+    auto p1ButtonMenu = CCMenuItemSpriteExtra::create(p1MenuSpr, this, menu_selector(AutoclickerPopup::switchPlayer));
+    p1ButtonMenu->setTag(0);
     p1MenuSpr->updateBGImage("GJ_button_02.png");
 
 
     p2MenuSpr = ButtonSprite::create("Player 2", "bigFont.fnt", "GJ_button_04.png", 0.8f);
-    auto p2ButtonMenu = CCMenuItemSpriteExtra::create(p2MenuSpr, this, menu_selector(AutoclickerPopup::switchTo2p));
+    auto p2ButtonMenu = CCMenuItemSpriteExtra::create(p2MenuSpr, this, menu_selector(AutoclickerPopup::switchPlayer));
+    p2ButtonMenu->setTag(1);
 
     tabMenu->addChild(p1ButtonMenu);
     tabMenu->addChild(p2ButtonMenu);
@@ -162,27 +164,64 @@ void AutoclickerPopup::saveChanges(cocos2d::CCObject* sender) {
     Autoclicker::g_inputs[0].clear();
     Autoclicker::g_inputs[1].clear();
     for(size_t i = 0; i < 2; i++) {
+        
+        size_t repeatAccumulation = 0; //when hold == 0 && release == 0, used to check for accumulated repeat time < 1000
 
         if(textInputs[i].empty()) continue;
         bool differentFromZero = false;
 
         for(const auto& node : textInputs[i]) {
             auto inputs = node->getTextStringInputs();
-            auto holdTime = geode::utils::numFromString<size_t>(inputs.first);
-            auto releaseTime = geode::utils::numFromString<size_t>(inputs.second);
+            auto repeatTimes = node->getRepeat();
 
-            if(holdTime.isErr() || releaseTime.isErr()) {
-                FLAlertLayer::create("Invalid input", "There is an invalid input", "Ok")->show();
+            auto holdTimeResult = geode::utils::numFromString<size_t>(inputs.first);
+            auto releaseTimeResult = geode::utils::numFromString<size_t>(inputs.second);
+            auto repeatResult = geode::utils::numFromString<size_t>(repeatTimes);
+
+            std::string errorMessage;
+
+            if(!holdTimeResult) errorMessage += "Hold field: " + holdTimeResult.unwrapErr() + '\n';
+            if(!releaseTimeResult) errorMessage += "Release field: " + releaseTimeResult.unwrapErr() + '\n';
+            if(!repeatResult) errorMessage += "Repeat field: " + repeatResult.unwrapErr() + '\n';
+
+            if(!errorMessage.empty()) {
+                FLAlertLayer::create("Invalid input", "Error message/s:\n" + errorMessage, "Ok")->show();
                 Autoclicker::g_inputs[i].clear();
                 return;
             }
 
-            auto holdTimeResult = holdTime.unwrap();
-            auto releaseTimeResult = releaseTime.unwrap();
-            if(holdTimeResult || releaseTimeResult) differentFromZero = true;
 
-            Autoclicker::g_inputs[i].emplace_back(holdTimeResult, false, !i); //first is 0, so, is false (bool p1)
-            Autoclicker::g_inputs[i].emplace_back(releaseTimeResult, true, !i);
+            auto holdTime = holdTimeResult.unwrap();
+            auto releaseTime = releaseTimeResult.unwrap();
+            auto repeat = repeatResult.unwrap();
+            if(holdTime || releaseTime) differentFromZero = true;
+
+            if(repeat == 0) {
+                FLAlertLayer::create("Invalid input", "Repeat needs a value above 0.", "Ok")->show();
+                Autoclicker::g_inputs[i].clear();
+                return;
+            }
+            if(holdTime == 0 && releaseTime == 0) {
+
+                if(repeat > 1000) {
+                    FLAlertLayer::create("Invalid input", "The repeat time cannot exceed 1000 if hold and release are equal to 0.", "Ok")->show();
+                    Autoclicker::g_inputs[i].clear();
+                    return;
+                } else {
+                    repeatAccumulation += repeat;
+                    if(repeatAccumulation > 1000) {
+                        FLAlertLayer::create("Invalid inputs", "The accumulated repeat time for consecutive inputs with a hold and release of 0 cannot exceed 1000.", "Ok")->show();
+                        Autoclicker::g_inputs[i].clear();
+                        return;
+                    }
+                }
+                
+            } else {
+                repeatAccumulation = 0;
+
+            }
+
+            Autoclicker::g_inputs[i].emplace_back(Input({holdTime, releaseTime}, repeat, !i)); //first is 0, so, is false (bool p1)
         }
         if(!differentFromZero) {
             FLAlertLayer::create("Invalid input", "At least one input needs a delay different from zero.", "Ok")->show();
@@ -196,7 +235,7 @@ void AutoclickerPopup::saveChanges(cocos2d::CCObject* sender) {
 
 void AutoclickerPopup::addInput(cocos2d::CCObject* sender) {
     auto content = scroll->m_contentLayer;
-    InputNode* node = InputNode::create({width * 0.8f, height * 0.10f});
+    InputNode* node = InputNode::create({width * 0.80f, height * 0.10f});
     node->retain(); //scary
     textInputs[currentPlayer].push_back(node);
     content->addChild(node);
@@ -228,13 +267,13 @@ void AutoclickerPopup::loadGlobalInputs() {
 
     for(size_t i = 0; i < 2; i++) {
         if(Autoclicker::g_inputs[i].empty()) continue;
-            for(size_t j = 0; j < Autoclicker::g_inputs[i].size(); j += 2) {
-                InputNode* node = InputNode::create({width * 0.8f, height * 0.10f}, {Autoclicker::g_inputs[i][j].ticks, Autoclicker::g_inputs[i][j + 1].ticks});
-                node->retain();
-                textInputs[i].push_back(node);
-                if(i == 0) content->addChild(node); //p1 is default
-                
-            }
+
+        for(const auto& input : Autoclicker::g_inputs[i]) {
+            InputNode* node = InputNode::create({width * 0.80f, height * 0.10f}, {input.ticks[0], input.ticks[1]}, input.repeatTimes);
+            node->retain();  //xd
+            textInputs[i].emplace_back(node);
+            if (i == 0) content->addChild(node); //0 is p1 and its by default
+        }
 
     }
 
@@ -242,38 +281,25 @@ void AutoclickerPopup::loadGlobalInputs() {
     scroll->scrollToTop();
 }
 
-void AutoclickerPopup::switchTo1p(cocos2d::CCObject* sender) {
-    if(currentPlayer == 0) return; //0 1p
+void AutoclickerPopup::switchPlayer(cocos2d::CCObject* sender) {
+    int tag = sender->getTag();
+    if(tag < 0 || tag > 1 || currentPlayer == tag) return;
+    ButtonSprite* sprites[2] = {p1MenuSpr, p2MenuSpr};
+    // 0 = 1p
+    // 1 = 2p
 
-    p1MenuSpr->updateBGImage("GJ_button_02.png");
-    p2MenuSpr->updateBGImage("GJ_button_04.png");
+    sprites[tag]->updateBGImage("GJ_button_02.png");
+    sprites[!tag]->updateBGImage("GJ_button_04.png");
+    // ! my beloved
 
-    currentPlayer = 0;
-    for (auto* node : textInputs[1]) {
+    currentPlayer = tag;
+
+    for(auto* node : textInputs[!tag]) {
         node->removeFromParentAndCleanup(false);
     }
 
     auto content = scroll->m_contentLayer;
-    for (auto* node: textInputs[0]) {
-        content->addChild(node);
-    }
-    content->updateLayout();
-    scroll->scrollToTop();
-}
-
-void AutoclickerPopup::switchTo2p(cocos2d::CCObject* sender) {
-    if(currentPlayer == 1) return; //1 2p
-
-    p2MenuSpr->updateBGImage("GJ_button_02.png");
-    p1MenuSpr->updateBGImage("GJ_button_04.png");
-
-    currentPlayer = 1;
-    for (auto* node : textInputs[0]) {
-        node->removeFromParentAndCleanup(false);
-    }
-
-    auto content = scroll->m_contentLayer;
-    for (auto* node: textInputs[1]) {
+    for(auto* node: textInputs[tag]) {
         content->addChild(node);
     }
     content->updateLayout();

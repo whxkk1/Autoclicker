@@ -20,6 +20,7 @@ private:
 
     void switchTo1p(cocos2d::CCObject* sender);
     void switchTo2p(cocos2d::CCObject* sender);
+    void switchPlayer(cocos2d::CCObject* sender);
 
     void removeLastInput(cocos2d::CCObject* sender);
     void removeAllInput(cocos2d::CCObject* sender);

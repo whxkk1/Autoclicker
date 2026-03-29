@@ -2,8 +2,8 @@
 #include <vector>
 
 struct Input {
-    size_t ticks;
-    bool release;
+    size_t ticks[2];
+    size_t repeatTimes;
     bool p1;
 };
 
